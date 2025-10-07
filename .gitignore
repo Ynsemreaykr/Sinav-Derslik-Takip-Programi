@@ -1,0 +1,11 @@
+# .gitignore içeriği (kopyala yapıştır)
+venv/
+.env
+__pycache__/
+*.pyc
+*.pyo
+.idea/
+.vscode/
+dist/
+build/
+*.egg-info/
