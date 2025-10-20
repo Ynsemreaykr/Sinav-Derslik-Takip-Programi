@@ -1,49 +1,92 @@
-# ui/student_view.py
-from PyQt5 import QtWidgets
-from models.student import Student
-from services import student_service as svc
+from PyQt5 import QtWidgets, QtCore
+from UI.login_window import LoginWindow
+from UI.admin_dashboard import AdminDashboard
+from UI.coordinator_dashboard import CoordinatorDashboard
+from models.user import User
 
-class StudentView(QtWidgets.QWidget):
+
+class MainWindow(QtWidgets.QMainWindow):
+    """
+    🧭 Uygulama Ana Penceresi
+    - Giriş, dashboard yönlendirme ve çıkış işlemlerini yönetir.
+    """
     def __init__(self):
         super().__init__()
-        self._build()
-        self.load()
+        self.setWindowTitle("OBS Exam Scheduler")
+        self.resize(1000, 700)
+        self.setMinimumSize(800, 600)
 
-    def _build(self):
-        self.table = QtWidgets.QTableWidget(0, 4)
-        self.table.setHorizontalHeaderLabels(["ID", "Ad", "No", "Email"])
-        self.name = QtWidgets.QLineEdit(); self.name.setPlaceholderText("Ad Soyad")
-        self.no   = QtWidgets.QLineEdit(); self.no.setPlaceholderText("Öğrenci No")
-        self.dep  = QtWidgets.QLineEdit(); self.dep.setPlaceholderText("Bölüm ID")
-        self.mail = QtWidgets.QLineEdit(); self.mail.setPlaceholderText("E-posta")
-        add = QtWidgets.QPushButton("Ekle"); add.clicked.connect(self.add_student)
-        refresh = QtWidgets.QPushButton("Yenile"); refresh.clicked.connect(self.load)
+        # Mevcut oturumdaki kullanıcı
+        self.current_user: User | None = None
+        self.dashboard = None
+        self.login_window = None
 
-        top = QtWidgets.QHBoxLayout()
-        for w in (self.name, self.no, self.dep, self.mail, add, refresh):
-            top.addWidget(w)
+        # İlk olarak giriş ekranını göster
+        self.show_login()
 
-        lay = QtWidgets.QVBoxLayout(self)
-        lay.addLayout(top)
-        lay.addWidget(self.table)
+        # Pencereyi ortala
+        self._center_on_screen()
 
-    def load(self):
-        sts = svc.list_students()
-        self.table.setRowCount(0)
-        for s in sts:
-            r = self.table.rowCount()
-            self.table.insertRow(r)
-            self.table.setItem(r, 0, QtWidgets.QTableWidgetItem(str(s.id)))
-            self.table.setItem(r, 1, QtWidgets.QTableWidgetItem(s.name or ""))
-            self.table.setItem(r, 2, QtWidgets.QTableWidgetItem(s.student_no or ""))
-            self.table.setItem(r, 3, QtWidgets.QTableWidgetItem(s.email or ""))
+    # ==========================================================
+    # 🔐 GİRİŞ EKRANI
+    # ==========================================================
+    def show_login(self):
+        """Giriş ekranını göster"""
+        self.login_window = LoginWindow(on_success=self.open_dashboard)
+        self.setCentralWidget(self.login_window)
 
-    def add_student(self):
-        s = Student(
-            name=self.name.text().strip(),
-            student_no=self.no.text().strip(),
-            department_id=int(self.dep.text()),
-            email=self.mail.text().strip() or None
-        )
-        svc.create_student(s)
-        self.load()
+    # ==========================================================
+    # 🧩 DASHBOARD AÇILIŞI
+    # ==========================================================
+    def open_dashboard(self, user: User):
+        """
+        Giriş başarılı olduğunda çağrılır.
+        Kullanıcı rolüne göre uygun dashboard açılır.
+        """
+        self.current_user = user
+
+        # Mevcut dashboard’ı temizle
+        if self.dashboard:
+            self.dashboard.deleteLater()
+
+        # Rol tabanlı yönlendirme
+        if user.is_admin():
+            self.dashboard = AdminDashboard(user, on_logout=self.handle_logout)
+            self.setCentralWidget(self.dashboard)
+
+        elif user.is_coordinator():
+            self.dashboard = CoordinatorDashboard(user, on_logout=self.handle_logout)
+            self.setCentralWidget(self.dashboard)
+
+        else:
+            QtWidgets.QMessageBox.warning(
+                self,
+                "Erişim Hatası",
+                f"Bilinmeyen kullanıcı rolü: {user.role}\nLütfen sistem yöneticisiyle iletişime geçin."
+            )
+            self.handle_logout()
+
+    # ==========================================================
+    # 🚪 ÇIKIŞ / OTURUM KAPATMA
+    # ==========================================================
+    def handle_logout(self):
+        """Kullanıcı çıkış yaptığında login ekranına döner"""
+        self.current_user = None
+
+        # Mevcut dashboard’ı kapat
+        if self.dashboard:
+            self.dashboard.deleteLater()
+            self.dashboard = None
+
+        # Login ekranını tekrar göster
+        self.show_login()
+
+    # ==========================================================
+    # 🖥️ PENCERE MERKEZLEME
+    # ==========================================================
+    def _center_on_screen(self):
+        """Ana pencereyi ekranın ortasına yerleştirir"""
+        qr = self.frameGeometry()
+        cp = QtWidgets.QDesktopWidget().availableGeometry().center()
+        qr.moveCenter(cp)
+        self.move(qr.topLeft())

@@ -1,30 +1,31 @@
 # services/student_service.py
 from typing import List, Optional
-from services.db import fetch_all, fetch_one, execute
+from database.db import fetch_all, fetch_one, execute
 from models.student import Student
 
-def list_students() -> List[Student]:
-    rows = fetch_all("SELECT id, name, student_no, department_id, email FROM students ORDER BY id DESC")
+def get_all_by_department(department_id: int) -> List[Student]:
+    rows = fetch_all(
+        "SELECT * FROM students WHERE department_id = %s ORDER BY number",
+        [department_id]
+    )
     return [Student.from_row(r) for r in rows]
 
-def get_student(sid: int) -> Optional[Student]:
-    row = fetch_one("SELECT id, name, student_no, department_id, email FROM students WHERE id = %s", [sid])
+def get_by_id(student_id: int) -> Optional[Student]:
+    row = fetch_one("SELECT * FROM students WHERE id = %s", [student_id])
     return Student.from_row(row) if row else None
 
-def create_student(s: Student) -> int:
-    sql = """
-    INSERT INTO students (name, student_no, department_id, email)
-    VALUES (%s, %s, %s, %s)
-    """
-    return execute(sql, [s.name, s.student_no, s.department_id, s.email])
+def create(s: Student) -> int:
+    return execute("""
+        INSERT INTO students (department_id, number, fullname, grade)
+        VALUES (%s, %s, %s, %s)
+    """, [s.department_id, s.number, s.fullname, s.grade])
 
-def update_student(s: Student) -> int:
-    sql = """
-    UPDATE students
-       SET name=%s, student_no=%s, department_id=%s, email=%s
-     WHERE id=%s
-    """
-    return execute(sql, [s.name, s.student_no, s.department_id, s.email, s.id])
+def update(s: Student) -> int:
+    return execute("""
+        UPDATE students
+           SET number=%s, fullname=%s, grade=%s
+         WHERE id=%s
+    """, [s.number, s.fullname, s.grade, s.id])
 
-def delete_student(sid: int) -> int:
-    return execute("DELETE FROM students WHERE id=%s", [sid])
+def delete(student_id: int) -> int:
+    return execute("DELETE FROM students WHERE id = %s", [student_id])

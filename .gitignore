@@ -1,11 +1,9 @@
-# .gitignore içeriği (kopyala yapıştır)
-venv/
-.env
+.venv/
+.idea/
+Proje-1.pdf
+ogrenci_listesi.xlsx
+Ders Listesi.xlsx
+2.zip
 __pycache__/
 *.pyc
-*.pyo
-.idea/
-.vscode/
-dist/
-build/
-*.egg-info/
+.env
