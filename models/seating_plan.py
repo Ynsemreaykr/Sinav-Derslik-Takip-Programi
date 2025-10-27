@@ -1,6 +1,5 @@
 # models/seating_plan.py
 from dataclasses import dataclass
-from typing import Optional
 from models.base_model import BaseModel
 
 @dataclass
@@ -9,9 +8,9 @@ class SeatingPlan(BaseModel):
     exam_id: int = 0
     student_id: int = 0
     classroom_id: int = 0
-    row_number: int = 0  # Sira numarasi
-    col_number: int = 0  # Sutun numarasi
-    seat_number: int = 0  # Koltuk numarasi
+    row_number: int = 0
+    col_number: int = 0
+    seat_number: int = 0
     
     @staticmethod
     def from_row(row: dict) -> "SeatingPlan":

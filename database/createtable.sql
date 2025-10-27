@@ -1,8 +1,3 @@
--- =====================================================
--- Dinamik Sınav Takvimi Oluşturma Sistemi
--- Tüm Tablo Tanımları
--- =====================================================
-
 -- 1. DEPARTMENTS (Bölümler)
 -- =====================================================
 CREATE TABLE IF NOT EXISTS departments (

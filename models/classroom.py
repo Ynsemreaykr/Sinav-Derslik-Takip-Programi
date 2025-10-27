@@ -1,9 +1,7 @@
 # models/classroom.py
 from dataclasses import dataclass
-from typing import Optional
 from enum import Enum
 from models.base_model import BaseModel
-
 
 class SeatGroup(Enum):
     DOUBLE = "DOUBLE"

@@ -2,7 +2,6 @@
 from typing import Any, Iterable, Sequence
 from database.connection import get_conn_cursor
 
-
 def fetch_all(sql: str, params: Sequence[Any] | None = None) -> list[dict]:
     """Birden fazla kayıt döner."""
     with get_conn_cursor() as (_, cur):
@@ -17,18 +16,6 @@ def fetch_one(sql: str, params: Sequence[Any] | None = None) -> dict | None:
         return dict(row) if row else None
 
 def execute(sql: str, params: Sequence[Any] | None = None, return_id: bool = False) -> int:
-    """
-    INSERT, UPDATE, DELETE işlemleri (otomatik commit).
-    
-    Args:
-        sql: SQL sorgusu
-        params: Parametreler
-        return_id: True ise RETURNING id değerini döndürür
-    
-    Returns:
-        return_id=True ise: Eklenen kaydın ID'si
-        return_id=False ise: Etkilenen satır sayısı
-    """
     with get_conn_cursor() as (conn, cur):
         cur.execute(sql, params or [])
         conn.commit()

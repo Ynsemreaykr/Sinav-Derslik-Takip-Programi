@@ -33,7 +33,6 @@ def table_exists(table_name: str) -> bool:
             result = cur.fetchone()
             return result['exists'] if result else False
     except Exception as e:
-        print(f"Tablo kontrol hatasi ({table_name}): {e}")
         return False
 
 def read_sql_file() -> str:
@@ -69,16 +68,13 @@ def create_table(table_name: str, sql_content: str) -> bool:
         create_sql = extract_table_creation_sql(sql_content, table_name)
         
         if not create_sql:
-            print(f"HATA: {table_name} icin CREATE TABLE bulunamadi!")
             return False
         
         with get_conn_cursor(autocommit=True) as (_, cur):
             cur.execute(create_sql)
-            print(f"  + Tablo olusturuldu: {table_name}")
             return True
             
     except Exception as e:
-        print(f"  x {table_name} olusturma hatasi: {e}")
         return False
 
 def create_indexes_and_triggers(sql_content: str) -> None:
@@ -94,7 +90,6 @@ def create_indexes_and_triggers(sql_content: str) -> None:
                     except Exception:
                         pass
         
-        print("  + Indeksler olusturuldu")
         
         with get_conn_cursor(autocommit=True) as (_, cur):
             trigger_func = """
@@ -108,43 +103,29 @@ def create_indexes_and_triggers(sql_content: str) -> None:
             """
             cur.execute(trigger_func)
         
-        print("  + Trigger function olusturuldu")
+        pass
         
     except Exception as e:
-        print(f"  x Indeks/trigger hatasi: {e}")
+        pass
 
 def check_and_create_all_tables() -> Tuple[int, int]:
     """Tüm tabloları kontrol eder ve oluşturur."""
-    print("\n" + "="*60)
-    print("VERITABANI TABLO KONTROLU")
-    print("="*60)
-    
     try:
         sql_content = read_sql_file()
     except FileNotFoundError as e:
-        print(f"HATA: {e}")
         return 0, 0
     
     existing_count = 0
     created_count = 0
     
     for table_name in TABLES_IN_ORDER:
-        print(f"\n[{table_name.upper()}]")
-        
         if table_exists(table_name):
-            print(f"  > Tablo mevcut")
             existing_count += 1
         else:
-            print(f"  ! Tablo bulunamadi, olusturuluyor...")
             if create_table(table_name, sql_content):
                 created_count += 1
     
-    print(f"\n[INDEKSLER VE TRIGGERLAR]")
     create_indexes_and_triggers(sql_content)
-    
-    print("\n" + "="*60)
-    print(f"OZET: Mevcut={existing_count}, Yeni={created_count}, Toplam={len(TABLES_IN_ORDER)}")
-    print("="*60 + "\n")
     
     return existing_count, created_count
 
@@ -157,7 +138,6 @@ def verify_all_tables() -> bool:
             missing.append(table_name)
     
     if missing:
-        print(f"EKSIK TABLOLAR: {', '.join(missing)}")
         return False
     
     return True

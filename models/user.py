@@ -4,7 +4,6 @@ from typing import Optional
 from enum import Enum
 from models.base_model import BaseModel
 
-
 class UserRole(Enum):
     ADMIN = "ADMIN"
     COORDINATOR = "COORDINATOR"

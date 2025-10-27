@@ -2,22 +2,6 @@
 from typing import Any, List, Optional
 from database.connection import get_conn_cursor
 
-# Örnek kullanım MANTIK BURDA
-# from database.db import fetch_all, execute
-#
-# # Tüm öğrencileri getir
-# students = fetch_all("SELECT * FROM students")
-#
-# # Yeni öğrenci ekle
-# execute(
-#     "INSERT INTO students (department_id, number, fullname, grade) VALUES (%s, %s, %s, %s)",
-#     [1, '220101001', 'Ahmet Yılmaz', 3]
-# )
-
-# =========================================================
-# Temel DB yardımcı fonksiyonları (context yönetimli)
-# =========================================================
-
 def fetch_all(query: str, params: Optional[List[Any]] = None) -> List[dict]:
     """Tüm satırları getir (SELECT)"""
     with get_conn_cursor() as (_, cur):

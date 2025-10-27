@@ -1,17 +1,3 @@
-# -*- coding: utf-8 -*-
-"""
-Sınav Programı Oluşturma Servisi
-
-Bu servis, verilen kısıtlara göre optimal sınav programı oluşturur.
-
-Optimizasyon Kuralları:
-1. Aynı sınıfın dersleri farklı günlere dağıtılır
-2. Öğrencinin aynı saatte iki sınavı olmaz
-3. Derslik kullanımı minimize edilir
-4. Öğrenci sınavları arasında minimum bekleme süresi bırakılır
-5. Kapasite yetersiz dersliklerde sınav planlanmaz
-"""
-
 from datetime import datetime, date, time, timedelta
 from typing import List, Dict, Optional, Tuple
 from services.db import fetch_all, execute
@@ -28,22 +14,17 @@ class ExamScheduler:
         
     def validate_constraints(self) -> bool:
         """Kısıtları doğrula"""
-        print("\n[1/8] Kisitlar dogrulaniyor...")
-        
-        # Tarih kontrolü
         start_date = datetime.strptime(self.constraints['start_date'], '%Y-%m-%d').date()
         end_date = datetime.strptime(self.constraints['end_date'], '%Y-%m-%d').date()
         
         if start_date >= end_date:
             self.errors.append("Baslangic tarihi bitis tarihinden once olmalidir!")
             return False
-        
-        # Ders kontrolü
+
         if not self.constraints['selected_courses']:
             self.errors.append("En az bir ders secilmelidir!")
             return False
-        
-        # Derslik kontrolü
+
         classrooms = fetch_all(
             "SELECT COUNT(*) as count FROM classrooms WHERE department_id = %s",
             [self.department_id]
@@ -53,54 +34,50 @@ class ExamScheduler:
             self.errors.append("Derslik bulunamadi! Once derslik ekleyin.")
             return False
         
-        print(f"   Tarih araligi: {start_date} - {end_date}")
-        print(f"   Ders sayisi: {len(self.constraints['selected_courses'])}")
-        print(f"   Derslik sayisi: {classrooms[0]['count']}")
-        
         return True
     
     def generate_available_dates(self) -> List[date]:
         """Kullanılabilir tarihleri oluştur (hariç tutulan günleri çıkar)"""
-        print("\n[2/8] Kullanilabilir tarihler olusturuluyor...")
-        
         start_date = datetime.strptime(self.constraints['start_date'], '%Y-%m-%d').date()
         end_date = datetime.strptime(self.constraints['end_date'], '%Y-%m-%d').date()
+
+        excluded_weekdays = []
+        if self.constraints.get('exclude_monday'): excluded_weekdays.append(0)
+        if self.constraints.get('exclude_tuesday'): excluded_weekdays.append(1)
+        if self.constraints.get('exclude_wednesday'): excluded_weekdays.append(2)
+        if self.constraints.get('exclude_thursday'): excluded_weekdays.append(3)
+        if self.constraints.get('exclude_friday'): excluded_weekdays.append(4)
+        if self.constraints.get('exclude_saturday'): excluded_weekdays.append(5)
+        if self.constraints.get('exclude_sunday'): excluded_weekdays.append(6)
         
         available_dates = []
         current_date = start_date
         
         while current_date <= end_date:
-            # Cumartesi kontrolü (5 = Saturday)
-            if current_date.weekday() == 5 and self.constraints.get('exclude_saturday'):
-                current_date += timedelta(days=1)
-                continue
-            
-            # Pazar kontrolü (6 = Sunday)
-            if current_date.weekday() == 6 and self.constraints.get('exclude_sunday'):
+            if current_date.weekday() in excluded_weekdays:
                 current_date += timedelta(days=1)
                 continue
             
             available_dates.append(current_date)
             current_date += timedelta(days=1)
         
-        print(f"   Toplam {len(available_dates)} gun kullanilabilir")
-        
         if len(available_dates) == 0:
-            self.errors.append("Secilen tarih araliginda uygun gun bulunamadi!")
+            error_msg = "HATA: Secilen tarih araliginda uygun gun bulunamadi!"
+            detail_msg = f"   >> Tarih araligi: {start_date} - {end_date}"
+            detail_msg2 = f"   >> Tum gunler haric tutulmus olabilir. Lutfen tarih araligini veya haric tutulan gunleri kontrol edin."
+            self.errors.append(error_msg)
+            self.errors.append(detail_msg)
+            self.errors.append(detail_msg2)
         
         return available_dates
     
     def get_courses_with_students(self) -> List[Dict]:
         """Seçilen dersleri ve öğrenci sayılarını al"""
-        print("\n[3/8] Dersler ve ogrenci sayilari aliniyor...")
-        
-        # Seçilen ders kodlarını al
         course_codes = self.constraints['selected_courses']
         
         if not course_codes:
             return []
-        
-        # SQL için placeholder oluştur
+
         placeholders = ','.join(['%s'] * len(course_codes))
         
         courses = fetch_all(f"""
@@ -113,175 +90,328 @@ class ExamScheduler:
             ORDER BY c.grade, c.code
         """, [self.department_id] + course_codes)
         
-        print(f"   Toplam {len(courses)} ders yuklendi")
-        
-        # Sınıf bazında grupla
-        grade_distribution = {}
-        for course in courses:
-            grade = course['grade']
-            if grade not in grade_distribution:
-                grade_distribution[grade] = 0
-            grade_distribution[grade] += 1
-        
-        for grade, count in sorted(grade_distribution.items()):
-            print(f"   {grade}. Sinif: {count} ders")
-        
         return courses
     
-    def distribute_exams_by_grade(self, courses: List[Dict], available_dates: List[date]) -> Dict:
+    def distribute_exams_by_grade(self, courses: List[Dict], available_dates: List[date], offset: int = 0) -> Dict:
         """
         Dersleri sınıf bazlı günlere dağıt
         Kural: Aynı sınıfın dersleri farklı günlere dağıtılır
         """
-        print("\n[4/8] Dersler sinif bazli gunlere dagitiliyor...")
-        
-        # Sınıf bazında grupla
         courses_by_grade = {}
         for course in courses:
             grade = course['grade']
             if grade not in courses_by_grade:
                 courses_by_grade[grade] = []
             courses_by_grade[grade].append(course)
-        
-        # Her sınıf için günlere dağıt
-        exam_schedule = {}  # {date: [courses]}
+
+        exam_schedule = {}
         
         for grade, grade_courses in sorted(courses_by_grade.items()):
-            print(f"   {grade}. Sinif: {len(grade_courses)} ders dagitiliyor...")
+            date_index = (offset + grade) % len(available_dates)
             
-            # Bu sınıfın derslerini günlere dağıt (round-robin)
-            date_index = 0
             for course in grade_courses:
-                if date_index >= len(available_dates):
-                    date_index = 0  # Başa dön
-                
                 exam_date = available_dates[date_index]
                 
                 if exam_date not in exam_schedule:
                     exam_schedule[exam_date] = []
+
+                if len(exam_schedule[exam_date]) >= 2:
+                    date_index = (date_index + 1) % len(available_dates)
+                    exam_date = available_dates[date_index]
+                    if exam_date not in exam_schedule:
+                        exam_schedule[exam_date] = []
                 
                 exam_schedule[exam_date].append(course)
-                date_index += 1
+                date_index = (date_index + 1) % len(available_dates)
+
+        total_exams = len(courses)
+        total_slots = len(available_dates) * 4
         
-        # Özet
-        for exam_date, day_courses in sorted(exam_schedule.items()):
-            print(f"   {exam_date}: {len(day_courses)} sinav")
+        if total_exams > total_slots:
+            warning_msg = f"UYARI: Tarih araligi sinav sayisi icin yetersiz olabilir!"
+            detail_msg = f"   >> Toplam sinav: {total_exams}, Maksimum slot: {total_slots} ({len(available_dates)} gun x 4 slot)"
+            self.warnings.append(warning_msg)
+            self.warnings.append(detail_msg)
         
         return exam_schedule
     
     def assign_time_slots(self, exam_schedule: Dict) -> List[Dict]:
         """
         Her sınava saat ata
-        Kural: Öğrencinin aynı saatte iki sınavı olmayacak
-        """
-        print("\n[5/8] Sinavlara saat ataniyor...")
         
+        DOĞRU MANTIK:
+        - no_overlap AÇIK: Hiçbir sınav aynı anda olamaz (sıralı)
+        - no_overlap KAPALI: Farklı sınıfların sınavları paralel olabilir
+        - Her ders için özel bekleme süresi kullanılabilir
+        """
         exams = []
         default_duration = self.constraints['default_duration']
-        break_duration = self.constraints['break_duration']
-        no_overlap = self.constraints['no_overlap']
-        
-        # Başlangıç saati
-        start_hour = 9  # 09:00
-        
-        for exam_date, day_courses in sorted(exam_schedule.items()):
-            current_time = time(start_hour, 0)
+        default_break = self.constraints['break_duration']
+        course_exam_durations = self.constraints.get('course_exam_durations', {})
+        course_break_durations = self.constraints.get('course_break_durations', {})
+        no_overlap = self.constraints.get('no_overlap', False)
+
+        start_hour = 9
+
+        if no_overlap:
+            last_end_time = {}
             
-            for course in day_courses:
-                duration = default_duration  # Şimdilik hepsi varsayılan
-                
-                # Başlangıç ve bitiş saatini hesapla
-                start_time = current_time
-                end_datetime = datetime.combine(exam_date, start_time) + timedelta(minutes=duration)
-                end_time = end_datetime.time()
-                
-                exam = {
-                    'course_id': course['id'],
-                    'course_code': course['code'],
-                    'course_name': course['name'],
-                    'grade': course['grade'],
-                    'student_count': course['student_count'],
-                    'exam_date': exam_date,
-                    'start_time': start_time,
-                    'end_time': end_time,
-                    'duration': duration
-                }
-                
-                exams.append(exam)
-                
-                # Bir sonraki sınav için saat hesapla
-                if no_overlap:
-                    # Sınavlar çakışmasın - sınav bitince + bekleme süresi
-                    next_datetime = end_datetime + timedelta(minutes=break_duration)
-                else:
-                    # Sınavlar çakışabilir - sadece bekleme süresi ekle
-                    next_datetime = datetime.combine(exam_date, start_time) + timedelta(minutes=break_duration)
-                
-                current_time = next_datetime.time()
-        
-        print(f"   Toplam {len(exams)} sinav planland")
+            for exam_date, day_courses in sorted(exam_schedule.items()):
+                for course in day_courses:
+                    course_code = course['code']
+                    duration = course_exam_durations.get(course_code, default_duration)
+                    break_time = course_break_durations.get(course_code, default_break)
+
+                    if exam_date not in last_end_time:
+                        start_datetime = datetime.combine(exam_date, time(start_hour, 0))
+                    else:
+                        start_datetime = last_end_time[exam_date] + timedelta(minutes=break_time)
+                    
+                    start_time = start_datetime.time()
+                    end_datetime = start_datetime + timedelta(minutes=duration)
+                    end_time = end_datetime.time()
+
+                    last_end_time[exam_date] = end_datetime
+                    
+                    exam = {
+                        'course_id': course['id'],
+                        'course_code': course['code'],
+                        'course_name': course['name'],
+                        'grade': course['grade'],
+                        'student_count': course['student_count'],
+                        'exam_date': exam_date,
+                        'start_time': start_time,
+                        'end_time': end_time,
+                        'duration': duration,
+                        'break_after': break_time
+                    }
+                    exams.append(exam)
+            
+        else:
+            day_class_schedule = {}
+            
+            for exam_date, day_courses in sorted(exam_schedule.items()):
+                for course in day_courses:
+                    course_code = course['code']
+                    duration = course_exam_durations.get(course_code, default_duration)
+                    break_time = course_break_durations.get(course_code, default_break)
+                    grade = course['grade']
+
+                    key = (exam_date, grade)
+                    if key in day_class_schedule:
+                        start_datetime = day_class_schedule[key] + timedelta(minutes=break_time)
+                    else:
+                        start_datetime = datetime.combine(exam_date, time(start_hour, 0))
+                    
+                    start_time = start_datetime.time()
+                    end_datetime = start_datetime + timedelta(minutes=duration)
+                    end_time = end_datetime.time()
+
+                    day_class_schedule[key] = end_datetime
+                    
+                    exam = {
+                        'course_id': course['id'],
+                        'course_code': course['code'],
+                        'course_name': course['name'],
+                        'grade': course['grade'],
+                        'student_count': course['student_count'],
+                        'exam_date': exam_date,
+                        'start_time': start_time,
+                        'end_time': end_time,
+                        'duration': duration,
+                        'break_after': break_time
+                    }
+                    
+                    exams.append(exam)
+
+        if not no_overlap:
+            exams = self.assign_times_with_classroom_awareness(exams)
         
         return exams
     
-    def check_student_conflicts(self, exams: List[Dict]) -> bool:
-        """
-        Öğrenci çakışmalarını kontrol et
-        Kural: Bir öğrencinin aynı saatte iki sınavı olamaz
-        """
-        print("\n[6/8] Ogrenci cakismalari kontrol ediliyor...")
+    def assign_times_with_classroom_awareness(self, exams: List[Dict]) -> List[Dict]:
+        classroom_date_schedule = {}
+
+        classrooms = fetch_all("""
+            SELECT id, capacity
+            FROM classrooms
+            WHERE department_id = %s
+            ORDER BY capacity DESC
+        """, [self.department_id])
         
+        if not classrooms:
+            return exams
+
+        for exam in exams:
+            suitable_classroom = None
+            for classroom in classrooms:
+                if classroom['capacity'] >= exam['student_count']:
+                    suitable_classroom = classroom
+                    break
+            
+            if not suitable_classroom:
+                continue
+            
+            classroom_id = suitable_classroom['id']
+            exam_date = exam['exam_date']
+
+            if classroom_id not in classroom_date_schedule:
+                classroom_date_schedule[classroom_id] = {}
+            
+            if exam_date not in classroom_date_schedule[classroom_id]:
+                classroom_date_schedule[classroom_id][exam_date] = datetime.combine(exam_date, time(9, 0))
+
+            available_time = classroom_date_schedule[classroom_id][exam_date]
+
+            exam['start_time'] = available_time.time()
+            end_datetime = available_time + timedelta(minutes=exam['duration'])
+            exam['end_time'] = end_datetime.time()
+
+            next_available = end_datetime + timedelta(minutes=exam['break_after'])
+            classroom_date_schedule[classroom_id][exam_date] = next_available
+            
+        
+        return exams
+    
+    def find_student_conflicts(self, exams: List[Dict]) -> List[Tuple[int, int]]:
+        """
+        Öğrenci çakışmalarını bul
+        Returns: [(exam1_index, exam2_index), ...]
+        """
         conflicts = []
         
-        # Her öğrenci için sınavlarını kontrol et
-        for exam1 in exams:
-            for exam2 in exams:
-                if exam1['course_id'] >= exam2['course_id']:
-                    continue  # Aynı dersi veya zaten kontrol edilmiş çifti atla
-                
-                # Aynı gün mü?
+        for i, exam1 in enumerate(exams):
+            for j, exam2 in enumerate(exams):
+                if i >= j:
+                    continue
+
                 if exam1['exam_date'] != exam2['exam_date']:
                     continue
-                
-                # Saatler çakışıyor mu?
+
                 if not (exam1['end_time'] <= exam2['start_time'] or exam2['end_time'] <= exam1['start_time']):
-                    # Çakışma var - bu iki dersi alan öğrenci var mı?
-                    common_students = fetch_all("""
-                        SELECT s.number, s.fullname
+                    common_students_count = fetch_all("""
+                        SELECT COUNT(DISTINCT s.id) as count
                         FROM students s
                         JOIN enrollments e1 ON s.id = e1.student_id
                         JOIN enrollments e2 ON s.id = e2.student_id
                         WHERE e1.course_id = %s AND e2.course_id = %s
-                        LIMIT 5
                     """, [exam1['course_id'], exam2['course_id']])
                     
-                    if common_students:
-                        conflict_msg = (
-                            f"Cakisma: {exam1['course_code']} ve {exam2['course_code']} "
-                            f"({exam1['exam_date']} {exam1['start_time']}-{exam1['end_time']}) - "
-                            f"{len(common_students)} ogrenci etkilendi"
-                        )
-                        conflicts.append(conflict_msg)
-                        self.warnings.append(conflict_msg)
+                    if common_students_count and common_students_count[0]['count'] > 0:
+                        conflicts.append((i, j))
+        
+        return conflicts
+    
+    def resolve_student_conflicts(self, exams: List[Dict], max_iterations: int = 50) -> List[Dict]:
+        """
+        Öğrenci çakışmalarını otomatik çöz
+        Çakışan sınavları farklı saatlere/günlere kaydır
+        """
+        from datetime import datetime, timedelta, time
+
+        available_dates = self.generate_available_dates()
+        
+        iteration = 0
+        resolved_conflicts = set()
+        
+        while iteration < max_iterations:
+            conflicts = self.find_student_conflicts(exams)
+            
+            if not conflicts:
+                return exams
+
+            new_conflicts = [c for c in conflicts if c not in resolved_conflicts]
+            if not new_conflicts and iteration > 0:
+                break
+
+            exam1_idx, exam2_idx = conflicts[0]
+            exam1 = exams[exam1_idx]
+            exam2 = exams[exam2_idx]
+
+            if exam1['student_count'] <= exam2['student_count']:
+                target_idx = exam1_idx
+                target_exam = exam1
+                other_exam = exam2
+            else:
+                target_idx = exam2_idx
+                target_exam = exam2
+                other_exam = exam1
+
+            current_start = datetime.combine(target_exam['exam_date'], target_exam['start_time'])
+            other_end = datetime.combine(other_exam['exam_date'], other_exam['end_time'])
+
+            break_duration = self.constraints.get('break_duration', 15)
+            new_start = other_end + timedelta(minutes=break_duration)
+
+            if new_start.hour >= 17 or new_start.hour < 9:
+                current_date = target_exam['exam_date']
+                next_date_idx = available_dates.index(current_date) + 1
+                
+                if next_date_idx < len(available_dates):
+                    new_date = available_dates[next_date_idx]
+                    new_start = datetime.combine(new_date, time(9, 0))
+                    exams[target_idx]['exam_date'] = new_date
+                else:
+                    new_date = available_dates[0]
+                    new_start = datetime.combine(new_date, time(15, 0))
+                    exams[target_idx]['exam_date'] = new_date
+
+            exams[target_idx]['start_time'] = new_start.time()
+            new_end = new_start + timedelta(minutes=target_exam['duration'])
+            exams[target_idx]['end_time'] = new_end.time()
+
+            resolved_conflicts.add((exam1_idx, exam2_idx))
+            
+            iteration += 1
+
+        remaining_conflicts = self.find_student_conflicts(exams)
+        if remaining_conflicts:
+            conflict_details = []
+            for exam1_idx, exam2_idx in remaining_conflicts[:5]:
+                exam1 = exams[exam1_idx]
+                exam2 = exams[exam2_idx]
+                conflict_details.append(
+                    f"{exam1['course_code']} ve {exam2['course_code']} "
+                    f"({exam1['exam_date']} {exam1['start_time']}-{exam1['end_time']})"
+                )
+
+            error_msg = f"HATA: {len(remaining_conflicts)} ogrenci cakismasi cozulemedi!"
+            self.errors.append(error_msg)
+
+            for detail in conflict_details:
+                detail_msg = f"   - Cakisma: {detail}"
+                self.errors.append(detail_msg)
+        
+        return exams
+    
+    def check_and_resolve_student_conflicts(self, exams: List[Dict]) -> Tuple[List[Dict], bool]:
+        """
+        Öğrenci çakışmalarını kontrol et ve çöz
+        Returns: (güncellenmiş_exams, çakışma_var_mı)
+        """
+        exams_resolved = self.resolve_student_conflicts(exams)
+
+        conflicts = self.find_student_conflicts(exams_resolved)
         
         if conflicts:
-            print(f"   UYARI: {len(conflicts)} cakisma tespit edildi")
-            for conflict in conflicts[:5]:  # İlk 5 çakışmayı göster
-                print(f"   - {conflict}")
-        else:
-            print("   Cakisma bulunamadi")
+            for i, (exam1_idx, exam2_idx) in enumerate(conflicts[:5]):
+                exam1 = exams_resolved[exam1_idx]
+                exam2 = exams_resolved[exam2_idx]
+                conflict_msg = (
+                    f"Cakisma: {exam1['course_code']} ve {exam2['course_code']} "
+                    f"({exam1['exam_date']} {exam1['start_time']}-{exam1['end_time']})"
+                )
+                self.warnings.append(conflict_msg)
         
-        return len(conflicts) == 0
+        return (exams_resolved, len(conflicts) == 0)
     
     def assign_classrooms_to_exams(self, exams: List[Dict]) -> List[Dict]:
         """
         Her sınava derslik ata
         Kural: Kapasite yeterli olmalı, minimum derslik kullanımı
         """
-        print("\n[7/8] Dersliklere sinav ataniyor...")
-        
-        # Tüm derslikleri al
         classrooms = fetch_all("""
-            SELECT id, code, name, capacity
+            SELECT id, code, name, capacity, "rows", cols, seat_group
             FROM classrooms
             WHERE department_id = %s
             ORDER BY capacity DESC
@@ -291,12 +421,9 @@ class ExamScheduler:
             self.errors.append("Derslik bulunamadi!")
             return exams
         
-        print(f"   Toplam {len(classrooms)} derslik mevcut")
-        
         for exam in exams:
             student_count = exam['student_count']
-            
-            # Bu sınav için uygun derslikleri bul
+
             suitable_classrooms = []
             
             for classroom in classrooms:
@@ -304,26 +431,54 @@ class ExamScheduler:
                     suitable_classrooms.append(classroom)
             
             if not suitable_classrooms:
-                error_msg = f"Ders {exam['course_code']} icin yeterli kapasiteli derslik bulunamadi! (Ogrenci: {student_count})"
-                self.errors.append(error_msg)
-                print(f"   HATA: {error_msg}")
-                exam['classrooms'] = []
-            else:
-                # En küçük uygun derslikleri seç (minimum kullanım için)
-                suitable_classrooms.sort(key=lambda x: x['capacity'])
+                all_classrooms_sorted = sorted(classrooms, key=lambda x: x['capacity'], reverse=True)
                 
-                # Şimdilik tek derslik ata (en küçük uygun olanı)
+                assigned_classrooms = []
+                remaining_students = student_count
+                
+                for classroom in all_classrooms_sorted:
+                    if remaining_students <= 0:
+                        break
+
+                    seat_group_str = str(classroom.get('seat_group', 'TRIPLE')).upper()
+                    rows = classroom.get('rows', 0)
+                    cols = classroom.get('cols', 0)
+
+                    if 'DOUBLE' in seat_group_str or seat_group_str == '2':
+                        seat_group_val = 2
+                    elif 'TRIPLE' in seat_group_str or seat_group_str == '3':
+                        seat_group_val = 3
+                    elif 'QUAD' in seat_group_str or seat_group_str == '4':
+                        seat_group_val = 4
+                    else:
+                        seat_group_val = 3
+
+                    if rows > 0 and cols > 0 and seat_group_val > 0:
+                        effective_capacity = (rows // seat_group_val) * cols * 2
+                    else:
+                        effective_capacity = classroom.get('capacity', 0)
+                    
+                    assigned_classrooms.append(classroom)
+                    remaining_students -= effective_capacity
+                
+                if remaining_students > 0:
+                    total_available = student_count - remaining_students
+                    error_msg = f"HATA: '{exam['course_code']} - {exam['course_name']}' dersi icin derslik kapasitesi yetersiz!"
+                    detail_msg = f"   >> Gerekli: {student_count} ogrenci, Mevcut: {total_available} kapasite, Eksik: {remaining_students} ogrenci"
+                    self.errors.append(error_msg)
+                    self.errors.append(detail_msg)
+                    exam['classrooms'] = []
+                else:
+                    exam['classrooms'] = assigned_classrooms
+            else:
+                suitable_classrooms.sort(key=lambda x: x['capacity'])
                 exam['classrooms'] = [suitable_classrooms[0]]
-                print(f"   {exam['course_code']}: {suitable_classrooms[0]['name']} ({student_count}/{suitable_classrooms[0]['capacity']})")
         
         return exams
     
     def save_to_database(self, exams: List[Dict]) -> Optional[int]:
         """Sınav programını veritabanına kaydet"""
-        print("\n[8/8] Sinav programi veritabanina kaydediliyor...")
-        
         try:
-            # 1. exam_schedules kaydı oluştur
             excluded_courses = [c for c in self.get_all_course_codes() 
                                if c not in self.constraints['selected_courses']]
             
@@ -344,16 +499,13 @@ class ExamScheduler:
                 self.constraints['default_duration'],
                 self.constraints['break_duration'],
                 self.constraints['no_overlap'],
-                json.dumps([]),  # excluded_days - şimdilik boş
+                json.dumps([]),
                 json.dumps(excluded_courses)
             ], return_id=True)
-            
-            print(f"   Schedule ID: {schedule_id}")
-            
-            # 2. Her sınav için exam kaydı oluştur
+
             for exam in exams:
                 if not exam.get('classrooms'):
-                    continue  # Derslik atanamadıysa atla
+                    continue
                 
                 exam_id = execute("""
                     INSERT INTO exams (
@@ -371,20 +523,17 @@ class ExamScheduler:
                     exam['duration'],
                     exam['student_count']
                 ], return_id=True)
-                
-                # 3. Derslik atamasını kaydet
+
                 for classroom in exam['classrooms']:
                     execute("""
                         INSERT INTO exam_classrooms (exam_id, classroom_id, allocated_seats)
                         VALUES (%s, %s, %s)
                     """, [exam_id, classroom['id'], exam['student_count']])
             
-            print(f"   {len(exams)} sinav kaydedildi")
             return schedule_id
             
         except Exception as e:
             self.errors.append(f"Veritabanina kayit hatasi: {e}")
-            print(f"   HATA: {e}")
             return None
     
     def get_all_course_codes(self) -> List[str]:
@@ -397,65 +546,81 @@ class ExamScheduler:
     
     def create_schedule(self) -> Tuple[bool, Optional[int], List[str], List[str]]:
         """
-        Sınav programını oluştur
+        Sınav programını oluştur - OPTİMİZASYONLU
         
         Returns:
             (success, schedule_id, errors, warnings)
         """
-        print("\n" + "=" * 80)
-        print("SINAV PROGRAMI OLUSTURULUYOR")
-        print("=" * 80)
-        
-        # 1. Kısıtları doğrula
         if not self.validate_constraints():
             return (False, None, self.errors, self.warnings)
-        
-        # 2. Kullanılabilir tarihleri oluştur
+
         available_dates = self.generate_available_dates()
         if not available_dates:
             return (False, None, self.errors, self.warnings)
-        
-        # 3. Dersleri al
+
         courses = self.get_courses_with_students()
         if not courses:
             self.errors.append("Ders bulunamadi!")
             return (False, None, self.errors, self.warnings)
+
+        max_attempts = min(10, len(available_dates))
+        best_result = None
+        best_error_count = float('inf')
         
-        # 4. Dersleri günlere dağıt
-        exam_schedule = self.distribute_exams_by_grade(courses, available_dates)
-        
-        # 5. Saatleri ata
-        exams = self.assign_time_slots(exam_schedule)
-        
-        # 6. Öğrenci çakışmalarını kontrol et
-        self.check_student_conflicts(exams)
-        
-        # 7. Derslikleri ata
-        exams = self.assign_classrooms_to_exams(exams)
-        
-        # 8. Veritabanına kaydet
-        schedule_id = self.save_to_database(exams)
-        
-        if schedule_id:
-            print("\n" + "=" * 80)
-            print("SINAV PROGRAMI BASARIYLA OLUSTURULDU!")
-            print("=" * 80)
-            return (True, schedule_id, self.errors, self.warnings)
+        for attempt in range(max_attempts):
+
+            self.errors = []
+            self.warnings = []
+
+            exam_schedule = self.distribute_exams_by_grade(courses, available_dates, offset=attempt)
+
+            exams = self.assign_time_slots(exam_schedule)
+
+            exams, conflicts_resolved = self.check_and_resolve_student_conflicts(exams)
+
+            exams = self.assign_classrooms_to_exams(exams)
+
+            critical_errors = [e for e in self.errors if "HATA:" in e or "yeterli kapasiteli derslik bulunamadi" in e or "cakisma" in e.lower()]
+            error_count = len(critical_errors)
+
+            if error_count < best_error_count:
+                best_error_count = error_count
+                best_result = {
+                    'exams': exams,
+                    'errors': self.errors.copy(),
+                    'warnings': self.warnings.copy(),
+                    'attempt': attempt + 1
+                }
+
+                if error_count == 0:
+                    break
+
+        if best_result:
+            exams = best_result['exams']
+            self.errors = best_result['errors']
+            self.warnings = best_result['warnings']
+
+            schedule_id = self.save_to_database(exams)
+            
+            critical_errors = [e for e in self.errors if "HATA:" in e or "yeterli kapasiteli derslik bulunamadi" in e or "cakisma" in e.lower()]
+
+            if critical_errors:
+                if schedule_id:
+                    from services.db import execute
+                    execute("DELETE FROM exam_schedules WHERE id = %s", [schedule_id])
+                
+                return (False, None, self.errors, self.warnings)
+
+            if schedule_id:
+                return (True, schedule_id, self.errors, self.warnings)
+            else:
+                return (False, None, self.errors, self.warnings)
         else:
-            return (False, None, self.errors, self.warnings)
+            error_msg = "HATA: Hicbir varyasyon basarili olmadi! Lutfen kisitlari kontrol edin."
+            return (False, None, [error_msg], [])
 
 
 def create_exam_schedule(department_id: int, constraints: dict) -> Tuple[bool, Optional[int], List[str], List[str]]:
-    """
-    Sınav programı oluştur (facade fonksiyon)
-    
-    Args:
-        department_id: Bölüm ID
-        constraints: Kısıtlar dictionary
-        
-    Returns:
-        (success, schedule_id, errors, warnings)
-    """
     scheduler = ExamScheduler(department_id, constraints)
     return scheduler.create_schedule()
 

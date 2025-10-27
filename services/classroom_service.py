@@ -1,17 +1,8 @@
 from typing import List, Optional
 from services.db import fetch_all, fetch_one, execute
 
-
 class ClassroomService:
-    """
-    🏫 Derslik Servisi
-    - Derslik CRUD işlemleri (ekle, listele, sil, güncelle)
-    - Departman bazlı sorgular
-    """
 
-    # ==========================================================
-    # 🔍 LİSTELEME
-    # ==========================================================
     def list_classrooms(self, department_id: Optional[int] = None) -> List[dict]:
         """Tüm derslikleri (isteğe göre departmana göre) döner"""
         if department_id:
@@ -25,27 +16,18 @@ class ClassroomService:
         """Belirli bir dersliği ID'ye göre getir"""
         return fetch_one("SELECT * FROM classrooms WHERE id = %s", [classroom_id])
 
-    # ==========================================================
-    # ➕ EKLEME
-    # ==========================================================
     def create_classroom(self, code: str, name: str, capacity: int, rows: int, cols: int,
                          seat_group: str, department_id: int) -> int:
         """Yeni derslik ekler"""
         return execute("""
-            INSERT INTO classrooms (code, name, capacity, rows, cols, seat_group, department_id)
+            INSERT INTO classrooms (code, name, capacity, "rows", cols, seat_group, department_id)
             VALUES (%s, %s, %s, %s, %s, %s, %s)
         """, [code, name, capacity, rows, cols, seat_group, department_id])
 
-    # ==========================================================
-    # 🗑️ SİLME
-    # ==========================================================
     def delete_classroom(self, classroom_id: int) -> int:
         """Dersliği ID’ye göre siler"""
         return execute("DELETE FROM classrooms WHERE id = %s", [classroom_id])
 
-    # ==========================================================
-    # ✏️ GÜNCELLEME
-    # ==========================================================
     def update_classroom(self, classroom_id: int, **kwargs) -> int:
         """Dersliği dinamik olarak günceller"""
         if not kwargs:
@@ -54,7 +36,10 @@ class ClassroomService:
         fields = []
         values = []
         for key, value in kwargs.items():
-            fields.append(f"{key} = %s")
+            if key == 'rows':
+                fields.append(f'"{key}" = %s')
+            else:
+                fields.append(f"{key} = %s")
             values.append(value)
 
         sql = f"UPDATE classrooms SET {', '.join(fields)} WHERE id = %s"

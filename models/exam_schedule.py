@@ -7,15 +7,15 @@ from models.exam import Exam, ExamType
 @dataclass
 class ExamScheduleConstraints:
     """Sinav programi kisitlari"""
-    excluded_courses: List[int] = None  # Programa dahil olmayacak dersler
-    start_date: Optional[date] = None  # Baslangic tarihi
-    end_date: Optional[date] = None  # Bitis tarihi
-    excluded_days: List[int] = None  # Hafta gunleri (0=Pazartesi, 6=Pazar)
+    excluded_courses: List[int] = None
+    start_date: Optional[date] = None
+    end_date: Optional[date] = None
+    excluded_days: List[int] = None
     exam_type: ExamType = ExamType.MIDTERM
-    default_duration: int = 75  # Varsayilan sinav suresi (dakika)
-    break_time: int = 15  # Bekleme suresi (dakika)
-    no_overlap: bool = False  # Sinavlar ayni zamana denk gelmesin mi
-    custom_durations: dict = None  # {course_id: duration}
+    default_duration: int = 75
+    break_time: int = 15
+    no_overlap: bool = False
+    custom_durations: dict = None
     
     def __post_init__(self):
         if self.excluded_courses is None:

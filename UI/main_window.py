@@ -4,40 +4,33 @@ from UI.admin_dashboard import AdminDashboard
 from UI.coordinator_dashboard import CoordinatorDashboard
 from models.user import User
 
-
 class MainWindow(QtWidgets.QMainWindow):
     """
-    🧭 Uygulama Ana Penceresi
+     Uygulama Ana Penceresi
     - Giriş, dashboard yönlendirme ve çıkış işlemlerini yönetir.
     """
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("OBS Exam Scheduler")
-        self.resize(1000, 700)
-        self.setMinimumSize(800, 600)
+        self.setWindowTitle("Dinamik Sinav Takvimi Olusturma Sistemi")
 
-        # Mevcut oturumdaki kullanıcı
+        screen = QtWidgets.QApplication.primaryScreen()
+        screen_geometry = screen.availableGeometry()
+
+        self.setGeometry(screen_geometry)
+
+        self.setMinimumSize(1024, 768)
+
         self.current_user: User | None = None
         self.dashboard = None
         self.login_window = None
 
-        # İlk olarak giriş ekranını göster
         self.show_login()
 
-        # Pencereyi ortala
-        self._center_on_screen()
-
-    # ==========================================================
-    # 🔐 GİRİŞ EKRANI
-    # ==========================================================
     def show_login(self):
         """Giriş ekranını göster"""
         self.login_window = LoginWindow(on_success=self.open_dashboard)
         self.setCentralWidget(self.login_window)
 
-    # ==========================================================
-    # 🧩 DASHBOARD AÇILIŞI
-    # ==========================================================
     def open_dashboard(self, user: User):
         """
         Giriş başarılı olduğunda çağrılır.
@@ -45,13 +38,15 @@ class MainWindow(QtWidgets.QMainWindow):
         """
         self.current_user = user
 
-        # Mevcut dashboard’ı temizle
         if self.dashboard:
             self.dashboard.deleteLater()
 
-        # Rol tabanlı yönlendirme
         if user.is_admin():
-            self.dashboard = AdminDashboard(user, on_logout=self.handle_logout)
+            self.dashboard = AdminDashboard(
+                user, 
+                on_logout=self.handle_logout,
+                on_dept_access=self.open_department_as_admin
+            )
             self.setCentralWidget(self.dashboard)
 
         elif user.is_coordinator():
@@ -66,24 +61,51 @@ class MainWindow(QtWidgets.QMainWindow):
             )
             self.handle_logout()
 
-    # ==========================================================
-    # 🚪 ÇIKIŞ / OTURUM KAPATMA
-    # ==========================================================
+    def open_department_as_admin(self, temp_user: User):
+        """Admin bölüm yönetimine erişir (aynı pencerede)"""
+        if not hasattr(self, 'original_admin_user'):
+            self.original_admin_user = self.current_user
+
+        if self.dashboard:
+            self.dashboard.deleteLater()
+        
+        self.dashboard = CoordinatorDashboard(
+            temp_user, 
+            on_logout=self.return_to_admin
+        )
+        self.setCentralWidget(self.dashboard)
+    
+    def return_to_admin(self):
+        """Koordinatör panelinden admin paneline geri dön"""
+        if hasattr(self, 'original_admin_user'):
+
+            if self.dashboard:
+                self.dashboard.deleteLater()
+            
+            self.dashboard = AdminDashboard(
+                self.original_admin_user,
+                on_logout=self.handle_logout,
+                on_dept_access=self.open_department_as_admin
+            )
+            self.setCentralWidget(self.dashboard)
+
+            delattr(self, 'original_admin_user')
+        else:
+            self.handle_logout()
+
     def handle_logout(self):
         """Kullanıcı çıkış yaptığında login ekranına döner"""
         self.current_user = None
 
-        # Mevcut dashboard’ı kapat
         if self.dashboard:
             self.dashboard.deleteLater()
             self.dashboard = None
 
-        # Login ekranını tekrar göster
+        if hasattr(self, 'original_admin_user'):
+            delattr(self, 'original_admin_user')
+
         self.show_login()
 
-    # ==========================================================
-    # 🖥️ PENCERE MERKEZLEME
-    # ==========================================================
     def _center_on_screen(self):
         """Ana pencereyi ekranın ortasına yerleştirir"""
         qr = self.frameGeometry()

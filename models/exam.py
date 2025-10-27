@@ -17,7 +17,7 @@ class Exam(BaseModel):
     course_id: int = 0
     exam_type: ExamType = ExamType.MIDTERM
     exam_date: Optional[datetime] = None
-    start_time: Optional[str] = None  # HH:MM formatinda
+    start_time: Optional[str] = None
     duration: int = 75  # Dakika
     classroom_id: Optional[int] = None
     
