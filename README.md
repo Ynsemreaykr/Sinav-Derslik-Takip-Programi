@@ -209,8 +209,7 @@ Excel ve PDF Dışa Aktarım
 
 ## 🌐 İletişim
 
-📧 `enes107148@gmail.com`  
-💻 **Proje:** [GitHub Repository Linkini Buraya Yaz](https://github.com/kullanici-adi/repo-adi)
+📧 `enes107148@gmail.com`
 
 ---
 
