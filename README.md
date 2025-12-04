@@ -1,4 +1,4 @@
-# 🎓 Dinamik Sınav Takvimi ve Oturma Planı Oluşturma Sistemi
+# 🎓 Dinamik Sınav Takvimi ve Oturma Planı Oluşturma Sistemi (Yazılım LAboratuvarı 1_1)
 
 ### *(OBS Exam Scheduler — Python + PyQt5 + PostgreSQL)*
 
